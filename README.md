@@ -10,13 +10,12 @@ A modular and extensible pipeline for image classification using custom CNN arch
 - **CLI**: Flexible options for training and testing, supporting deployment-ready model inference on new images.
 
 ### **Classification Metrics**
+---
 
 #### **CIFAR-10**
 - **Precision (Macro):** 0.8650  
 - **Recall (Macro):**    0.8656  
 - **F1 Score (Macro):**  0.8651  
-
----
 
 ### **Classification Report**
 | Class | Precision | Recall | F1-Score | Support |
@@ -37,13 +36,12 @@ A modular and extensible pipeline for image classification using custom CNN arch
 - **Macro Avg:** Precision = 0.87, Recall = 0.87, F1-Score = 0.87  
 - **Weighted Avg:** Precision = 0.87, Recall = 0.87, F1-Score = 0.87  
 
+---
 
 #### **MNIST**
 - **Precision (Macro):** 0.9905  
 - **Recall (Macro):**    0.9906  
-- **F1 Score (Macro):**  0.9905  
-
----
+- **F1 Score (Macro):**  0.9905
 
 ### **Classification Report**
 | Class | Precision | Recall | F1-Score | Support |
