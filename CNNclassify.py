@@ -550,18 +550,20 @@ def main():
       python3 CNNclassify.py train --mnist       Train the model using the MNIST dataset
       python3 CNNclassify.py train --cifar       Train the model using the CIFAR-10 dataset
       python3 CNNclassify.py test car.png        Test the model using 'car.png'
+      python3 CNNclassify.py evaluate --mnist    Evaluate the model trained on the MNIST dataset
+      python3 CNNclassify.py evaluate --cifar    Evaluate the model trained on the CIFAR-10 dataset
     """
 
     # Set up the argument parser for CLI commands
     parser = argparse.ArgumentParser(
-        usage='python3 CNNclassify.py [-h] {train,test,save} ...',
+        usage='python3 CNNclassify.py [-h] {train,test,evaluate} ...',
         formatter_class=argparse.RawTextHelpFormatter,
         add_help=False,
         epilog=epilog
     )
 
-    # Create subparsers for train and test commands
-    subparsers = parser.add_subparsers(dest="command", help="Command to execute: train, test, or save")
+    # Create subparsers for train, test, and evaluate commands
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute: train, test, or evaluate")
 
     # Parser for the train command
     train_parser = subparsers.add_parser('train', help="Train the model")
@@ -571,6 +573,11 @@ def main():
     # Parser for the test command
     test_parser = subparsers.add_parser('test', help="Test the model")
     test_parser.add_argument('image_file', nargs='*', help="Image file(s) for testing (e.g., car.png)")
+
+    # Parser for the evaluate command
+    evaluate_parser = subparsers.add_parser('evaluate', help="Evaluate the model")
+    evaluate_parser.add_argument('--mnist', action='store_true', help="Evaluate the CNN trained on the MNIST dataset.")
+    evaluate_parser.add_argument('--cifar', action='store_true', help="Evaluate the CNN trained on the CIFAR-10 dataset.")
 
     # Parse the command-line arguments
     args = parser.parse_args()
@@ -582,62 +589,61 @@ def main():
 
     # Train the model based on user input
     if args.command == 'train':
-        # If no dataset is provided for training, show an error and exit
         if not args.mnist and not args.cifar:
             print("Error: 'train' command requires either --mnist or --cifar argument.", file=sys.stderr)
-            print("Use --help for more information.")
             sys.exit(1)
 
-        # Set up the device (GPU/CPU)
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        # Choose the dataset to train on (MNIST or CIFAR-10)
         dataset = 'mnist' if args.mnist else 'cifar'
 
-        # Get dataset-specific information (channels, classes, mean, std, and labels)
         batch_size = 64
         input_channels, num_classes, means, stds, dataset_labels = get_dataset_info(dataset)
-        # Load the dataset into DataLoader for batching
         train_loader, test_loader = load_dataset(dataset, batch_size, means, stds)
-        # Initialize the CNN model with appropriate input channels and number of classes
         model = CNNClassifier(input_channels, num_classes, dataset).to(device)
-        # Set up the loss function, optimizer and learning rate scheduler for training
         loss_fn = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0005)
         scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=2, verbose=False)
-        # Set the number of training epochs (10 for MNIST, 50 for CIFAR-10)
         num_epochs = 10 if dataset == 'mnist' else 50
-        # Train the model
         train_model(model, train_loader, test_loader, loss_fn, optimizer, scheduler, device, num_epochs, dataset)
 
     # Test the model using an image file
     elif args.command == 'test':
         if not args.image_file:
             print("Error: 'test' command requires at least one image file.", file=sys.stderr)
-            print("Use --help for more information.")
             sys.exit(1)
 
-        # Set the model directory and device
         model_dir = "model"
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         for img_file in args.image_file:
-            # List of datasets to run inference on
             datasets = ['cifar', 'mnist']
-            # Run inference using models trained on both CIFAR-10 and MNIST
             for dataset in datasets:
-                # Get dataset-specific details (channels, classes, mean, std, labels)
                 input_channels, num_classes, means, stds, dataset_labels = get_dataset_info(dataset)
-                # Load the saved model for the current dataset
                 model = load_saved_model(CNNClassifier, num_classes, input_channels, model_dir, dataset, device)
                 if model is not None:
-                    # Perform inference on the image and get the predicted label
                     predicted_label = classify_image(model, img_file, device, dataset, means, stds, dataset_labels)
-                    if dataset == 'mnist':
-                        print(f"Prediction result by model trained on MNIST dataset: {predicted_label}")
-                    elif dataset == 'cifar':
-                        print(f"Prediction result by model trained on CIFAR-10 dataset: {predicted_label}")
+                    print(f"Prediction result by model trained on {dataset.upper()} dataset: {predicted_label}")
                 else:
                     print(f"Error: Could not load model for {dataset} dataset.")
+
+    # Evaluate the model
+    elif args.command == 'evaluate':
+        if not args.mnist and not args.cifar:
+            print("Error: 'evaluate' command requires either --mnist or --cifar argument.", file=sys.stderr)
+            sys.exit(1)
+
+        model_dir = "model"
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        dataset = 'mnist' if args.mnist else 'cifar'
+
+        input_channels, num_classes, means, stds, dataset_labels = get_dataset_info(dataset)
+        train_loader, test_loader = load_dataset(dataset, batch_size=64, means=means, stds=stds)
+
+        model = load_saved_model(CNNClassifier, num_classes, input_channels, model_dir, dataset, device)
+        if model is not None:
+            evaluate_model(model, test_loader, device, dataset, num_classes, k_values=[1, 5])
+        else:
+            print(f"Error: Could not load model for {dataset} dataset.")
 
 
 if __name__ == '__main__':
