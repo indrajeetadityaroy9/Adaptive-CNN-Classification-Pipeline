@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torchvision import datasets, transforms
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix, classification_report
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from PIL import Image, ImageOps
@@ -474,6 +475,72 @@ def load_saved_model(model_class, num_classes, in_channels, model_directory, dat
     model.eval()
     return model
 
+# -------------------- Evaluation --------------------
+def evaluate_model(model, data_loader, device, dataset_name, num_classes, k_values=[1, 5]):
+    """
+    Perform post-training analysis on a trained model.
+
+    Parameters:
+        - model (torch.nn.Module): Trained CNN model.
+        - data_loader (torch.utils.data.DataLoader): DataLoader for the evaluation dataset.
+        - device (torch.device): Device to run the evaluation on (CPU/GPU).
+        - dataset_name (str): Name of the dataset for analysis.
+        - num_classes (int): Number of target classes.
+        - k_values (list): List of 'k' values for Top-K accuracy (e.g., [1, 5]).
+
+    Returns:
+        - None (prints analysis results to the console).
+    """
+    model.eval()  # Set the model to evaluation mode
+    all_labels = []
+    all_preds = []
+    top_k_correct = {k: 0 for k in k_values}
+
+    with torch.no_grad():
+        for images, labels in data_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images, dataset_name)
+            
+            # Predicted probabilities and top-K predictions
+            probs = torch.softmax(outputs, dim=1)
+            top_k_preds = {k: probs.topk(k, dim=1).indices for k in k_values}
+            
+            # Update top-K accuracy counts
+            for k in k_values:
+                top_k_correct[k] += (
+                    torch.eq(labels.view(-1, 1), top_k_preds[k]).any(dim=1).sum().item()
+                )
+
+            # Store predictions and labels for further analysis
+            preds = torch.argmax(outputs, dim=1)
+            all_labels.extend(labels.cpu().numpy())
+            all_preds.extend(preds.cpu().numpy())
+
+    # Convert lists to NumPy arrays
+    all_labels = np.array(all_labels)
+    all_preds = np.array(all_preds)
+
+    # Metrics calculation
+    print("\n--- Classification Metrics ---")
+    precision = precision_score(all_labels, all_preds, average='macro')
+    recall = recall_score(all_labels, all_preds, average='macro')
+    f1 = f1_score(all_labels, all_preds, average='macro')
+    print(f"Precision (Macro): {precision:.4f}")
+    print(f"Recall (Macro):    {recall:.4f}")
+    print(f"F1 Score (Macro):  {f1:.4f}")
+
+    print("\n--- Confusion Matrix ---")
+    cm = confusion_matrix(all_labels, all_preds)
+    print(cm)
+
+    print("\n--- Classification Report ---")
+    print(classification_report(all_labels, all_preds, zero_division=0))
+
+    print("\n--- Top-K Accuracy ---")
+    total_samples = len(all_labels)
+    for k in k_values:
+        top_k_acc = top_k_correct[k] / total_samples
+        print(f"Top-{k} Accuracy: {top_k_acc:.4f}")
 
 # -------------------- CLI --------------------
 
