@@ -1,6 +1,6 @@
 # Dataset Agnostic Image Classification
 
-An adaptive CNN classification pipeline that dynamically adjusts its architecture based on dataset characteristics. The pipeline implements dataset-specific model configurations, preprocessing strategies, and augmentation techniques to optimize performance across diverse image classification tasks.
+A modular CNN classification pipeline that dynamically adjusts its architecture based on dataset characteristics. The pipeline implements dataset-specific model configurations, preprocessing strategies, and augmentation techniques to optimize performance across diverse image classification tasks.
 
 1. **Adaptive Architecture Design**: A single model class that dynamically instantiates dataset-specific layer configurations
 2. **Automated Preprocessing**: Dataset-aware image preprocessing and augmentation pipelines
