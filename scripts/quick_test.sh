@@ -2,9 +2,7 @@
 
 set -e
 
-echo "===================================="
 echo "Running Quick Smoke Test"
-echo "===================================="
 echo ""
 echo "This will:"
 echo "  - Train MNIST for 2 epochs"
@@ -18,7 +16,6 @@ EXPERIMENT_NAME="smoke_test_${TIMESTAMP}"
 echo "Experiment name: $EXPERIMENT_NAME"
 echo ""
 
-# Run training
 modal run modal_train.py \
     --config-path configs/mnist_test_config.yaml \
     --num-gpus 1 \
@@ -26,9 +23,7 @@ modal run modal_train.py \
 
 if [ $? -eq 0 ]; then
     echo ""
-    echo "===================================="
-    echo "✓ Smoke Test Passed!"
-    echo "===================================="
+    echo "Smoke Test Passed!"
     echo ""
     echo "Experiment: $EXPERIMENT_NAME"
     echo ""
@@ -37,8 +32,6 @@ if [ $? -eq 0 ]; then
     echo ""
 else
     echo ""
-    echo "===================================="
-    echo "✗ Smoke Test Failed"
-    echo "===================================="
+    echo "Smoke Test Failed"
     exit 1
 fi

@@ -30,11 +30,11 @@ function download_experiment() {
     modal volume get $VOLUME_NAME "outputs/$experiment_name" "$output_dir/$experiment_name"
 
     if [ $? -eq 0 ]; then
-        echo "✓ Download complete!"
+        echo "Download complete!"
         echo "Files available at: $output_dir/$experiment_name"
         ls -lh "$output_dir/$experiment_name"
     else
-        echo "✗ Download failed"
+        echo "Download failed"
         return 1
     fi
 }
