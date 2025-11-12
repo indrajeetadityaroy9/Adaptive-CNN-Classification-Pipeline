@@ -76,8 +76,8 @@ class Trainer:
         self.use_amp = config.training.use_amp and device.type == 'cuda'
         self.autocast_kwargs = {}
         if self.use_amp:
-            self.scaler = GradScaler(device_type=device.type)
-            self.autocast_kwargs = {'device_type': device.type}
+            self.scaler = GradScaler()  # device_type not supported in PyTorch 2.0
+            self.autocast_kwargs = {'device_type': 'cuda'}  # autocast requires device_type
             logger.info("Using Automatic Mixed Precision (AMP)")
 
         self.use_swa = config.training.use_swa
@@ -163,161 +163,6 @@ class Trainer:
         else:
             return None
 
-    def train_epoch(self, train_loader):
-        self.model.train()
-        total_loss = 0
-        correct = 0
-        total = 0
-        batch_count = 0
-
-        pbar = tqdm(train_loader, desc=f"Epoch {self.current_epoch + 1}")
-
-        for batch_idx, (inputs, targets) in enumerate(pbar):
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
-
-            if self.use_amp:
-                with autocast(**self.autocast_kwargs):
-                    outputs = self.model(inputs)
-                    loss = self.criterion(outputs, targets)
-                    loss = loss / self.grad_accum_steps
-
-                self.scaler.scale(loss).backward()
-
-                if (batch_idx + 1) % self.grad_accum_steps == 0:
-
-                    if self.config.training.gradient_clip_val > 0:
-                        self.scaler.unscale_(self.optimizer)
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(),
-                            self.config.training.gradient_clip_val
-                        )
-
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                    self.optimizer.zero_grad()
-            else:
-                outputs = self.model(inputs)
-                loss = self.criterion(outputs, targets)
-                loss = loss / self.grad_accum_steps
-                loss.backward()
-
-                if (batch_idx + 1) % self.grad_accum_steps == 0:
-
-                    if self.config.training.gradient_clip_val > 0:
-                        torch.nn.utils.clip_grad_norm_(
-                            self.model.parameters(),
-                            self.config.training.gradient_clip_val
-                        )
-
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
-
-            total_loss += loss.item() * self.grad_accum_steps
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-            batch_count += 1
-
-            current_loss = total_loss / batch_count
-            current_acc = 100. * correct / total
-            pbar.set_postfix({'Loss': f'{current_loss:.4f}', 'Acc': f'{current_acc:.2f}%'})
-
-            self.global_step += 1
-
-        metrics = {
-            'train_loss': total_loss / batch_count,
-            'train_acc': 100. * correct / total
-        }
-
-        return metrics
-
-    @torch.no_grad()
-    def validate(self, val_loader):
-        self.model.eval()
-        total_loss = 0
-        correct = 0
-        total = 0
-
-        for inputs, targets in tqdm(val_loader, desc="Validation"):
-            inputs, targets = inputs.to(self.device), targets.to(self.device)
-
-            outputs = self.model(inputs)
-            loss = self.criterion(outputs, targets)
-
-            total_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-
-        metrics = {
-            'val_loss': total_loss / len(val_loader),
-            'val_acc': 100. * correct / total
-        }
-
-        return metrics
-
-    def train(self, train_loader, val_loader, num_epochs=None):
-        num_epochs = num_epochs or self.config.training.num_epochs
-
-        logger.info(f"Starting training for {num_epochs} epochs")
-
-        for epoch in range(num_epochs):
-            self.current_epoch = epoch
-            epoch_start_time = time.time()
-
-            if epoch < self.config.training.warmup_epochs:
-                warmup_lr = self.config.training.learning_rate * (epoch + 1) / self.config.training.warmup_epochs
-                for param_group in self.optimizer.param_groups:
-                    param_group['lr'] = warmup_lr
-
-            train_metrics = self.train_epoch(train_loader)
-
-            val_metrics = self.validate(val_loader)
-
-            if self.use_swa and epoch >= self.swa_start_epoch:
-                self.swa_model.update_parameters(self.model)
-                self.swa_scheduler.step()
-            elif self.scheduler is not None:
-
-                if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
-                    self.scheduler.step(val_metrics['val_loss'])
-                else:
-                    self.scheduler.step()
-
-            epoch_time = time.time() - epoch_start_time
-            current_lr = self.optimizer.param_groups[0]['lr']
-
-            logger.info(
-                f"Epoch [{epoch + 1}/{num_epochs}] "
-                f"Train Loss: {train_metrics['train_loss']:.4f}, "
-                f"Train Acc: {train_metrics['train_acc']:.2f}%, "
-                f"Val Loss: {val_metrics['val_loss']:.4f}, "
-                f"Val Acc: {val_metrics['val_acc']:.2f}%, "
-                f"LR: {current_lr:.6f}, "
-                f"Time: {epoch_time:.2f}s"
-            )
-
-            for key, value in {**train_metrics, **val_metrics}.items():
-                self.metrics_history[key].append(value)
-
-            if val_metrics['val_acc'] > self.best_val_acc:
-                self.best_val_acc = val_metrics['val_acc']
-                self.save_checkpoint('best_model.pth', epoch, val_metrics)
-
-            if (epoch + 1) % self.config.logging.save_frequency == 0:
-                self.save_checkpoint(f'checkpoint_epoch_{epoch + 1}.pth', epoch, val_metrics)
-
-            if self.early_stopping:
-                if self.early_stopping(val_metrics['val_loss']):
-                    logger.info(f"Early stopping triggered at epoch {epoch + 1}")
-                    break
-
-        if self.use_swa:
-            logger.info("Updating batch normalization statistics for SWA model")
-            torch.optim.swa_utils.update_bn(train_loader, self.swa_model, self.device)
-
-        logger.info("Training completed")
-
     def save_checkpoint(self, filename, epoch, metrics):
         checkpoint_dir = Path(self.config.output_dir) / 'checkpoints'
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -373,3 +218,233 @@ class Trainer:
         self.metrics_history = defaultdict(list, checkpoint.get('metrics_history', {}))
 
         logger.info(f"Checkpoint loaded from {checkpoint_path}")
+
+
+class DDPTrainer(Trainer):
+    def __init__(self, model, config, device, rank, world_size):
+        # Initialize base trainer with unwrapped model for state dict access
+        super().__init__(model.module if hasattr(model, 'module') else model, config, device)
+
+        # Store DDP-wrapped model for training
+        self.ddp_model = model
+        self.rank = rank
+        self.world_size = world_size
+        self.is_main_process = (rank == 0)
+
+        # Import distributed utilities
+        import torch.distributed as dist
+        self.dist = dist
+
+    def train_epoch_ddp(self, train_loader, train_sampler):
+        # Set epoch for distributed sampler (different shuffle each epoch)
+        train_sampler.set_epoch(self.current_epoch)
+
+        self.ddp_model.train()
+        total_loss = 0
+        correct = 0
+        total = 0
+        batch_count = 0
+
+        # Only show progress bar on rank 0
+        if self.is_main_process:
+            pbar = tqdm(train_loader, desc=f"Epoch {self.current_epoch + 1}")
+        else:
+            pbar = train_loader
+
+        for batch_idx, (inputs, targets) in enumerate(pbar):
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+
+            if self.use_amp:
+                with autocast(**self.autocast_kwargs):
+                    outputs = self.ddp_model(inputs)
+                    loss = self.criterion(outputs, targets)
+                    loss = loss / self.grad_accum_steps
+
+                self.scaler.scale(loss).backward()
+
+                if (batch_idx + 1) % self.grad_accum_steps == 0:
+                    if self.config.training.gradient_clip_val > 0:
+                        self.scaler.unscale_(self.optimizer)
+                        torch.nn.utils.clip_grad_norm_(
+                            self.ddp_model.parameters(),
+                            self.config.training.gradient_clip_val
+                        )
+
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
+                    self.optimizer.zero_grad()
+            else:
+                outputs = self.ddp_model(inputs)
+                loss = self.criterion(outputs, targets)
+                loss = loss / self.grad_accum_steps
+                loss.backward()
+
+                if (batch_idx + 1) % self.grad_accum_steps == 0:
+                    if self.config.training.gradient_clip_val > 0:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.ddp_model.parameters(),
+                            self.config.training.gradient_clip_val
+                        )
+
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+
+            total_loss += loss.item() * self.grad_accum_steps
+            _, predicted = outputs.max(1)
+
+            # Handle one-hot encoded targets
+            if len(targets.shape) > 1:
+                targets = targets.argmax(1)
+
+            correct += predicted.eq(targets).sum().item()
+            total += targets.size(0)
+            batch_count += 1
+
+            if self.is_main_process and hasattr(pbar, 'set_postfix'):
+                pbar.set_postfix({
+                    'Loss': f'{total_loss/batch_count:.4f}',
+                    'Acc': f'{100.*correct/total:.2f}%'
+                })
+
+            self.global_step += 1
+
+        # Aggregate metrics across all GPUs
+        loss_tensor = torch.tensor([total_loss], device=self.device)
+        correct_tensor = torch.tensor([correct], device=self.device)
+        total_tensor = torch.tensor([total], device=self.device)
+
+        self.dist.all_reduce(loss_tensor, op=self.dist.ReduceOp.SUM)
+        self.dist.all_reduce(correct_tensor, op=self.dist.ReduceOp.SUM)
+        self.dist.all_reduce(total_tensor, op=self.dist.ReduceOp.SUM)
+
+        avg_loss = loss_tensor.item() / (batch_count * self.world_size)
+        avg_acc = 100. * correct_tensor.item() / total_tensor.item()
+
+        metrics = {
+            'train_loss': avg_loss,
+            'train_acc': avg_acc
+        }
+
+        return metrics
+
+    @torch.no_grad()
+    def validate_ddp(self, val_loader):
+        self.ddp_model.eval()
+        total_loss = 0
+        correct = 0
+        total = 0
+
+        for inputs, targets in val_loader:
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+
+            outputs = self.ddp_model(inputs)
+            loss = self.criterion(outputs, targets)
+
+            total_loss += loss.item() * inputs.size(0)
+            _, predicted = outputs.max(1)
+
+            # Handle one-hot encoded targets
+            if len(targets.shape) > 1:
+                targets = targets.argmax(1)
+
+            correct += predicted.eq(targets).sum().item()
+            total += targets.size(0)
+
+        # Aggregate metrics across all GPUs
+        loss_tensor = torch.tensor([total_loss], device=self.device)
+        correct_tensor = torch.tensor([correct], device=self.device)
+        total_tensor = torch.tensor([total], device=self.device)
+
+        self.dist.all_reduce(loss_tensor, op=self.dist.ReduceOp.SUM)
+        self.dist.all_reduce(correct_tensor, op=self.dist.ReduceOp.SUM)
+        self.dist.all_reduce(total_tensor, op=self.dist.ReduceOp.SUM)
+
+        avg_loss = loss_tensor.item() / total_tensor.item()
+        avg_acc = 100. * correct_tensor.item() / total_tensor.item()
+
+        metrics = {
+            'val_loss': avg_loss,
+            'val_acc': avg_acc
+        }
+
+        return metrics
+
+    def train_ddp(self, train_loader, train_sampler, val_loader, num_epochs=None):
+        num_epochs = num_epochs or self.config.training.num_epochs
+
+        if self.is_main_process:
+            logger.info(f"Starting DDP training for {num_epochs} epochs")
+            logger.info(f"World Size: {self.world_size}")
+            logger.info(f"Effective Batch Size: {self.config.data.batch_size * self.world_size}")
+
+        for epoch in range(self.current_epoch, num_epochs):
+            self.current_epoch = epoch
+            epoch_start_time = time.time()
+
+            # Warmup phase
+            if epoch < self.config.training.warmup_epochs:
+                warmup_lr = self.config.training.learning_rate * (epoch + 1) / self.config.training.warmup_epochs
+                for param_group in self.optimizer.param_groups:
+                    param_group['lr'] = warmup_lr
+
+            # Training
+            train_metrics = self.train_epoch_ddp(train_loader, train_sampler)
+
+            # Validation
+            val_metrics = self.validate_ddp(val_loader)
+
+            # Update scheduler
+            if self.use_swa and epoch >= self.swa_start_epoch:
+                self.swa_model.update_parameters(self.ddp_model.module)
+                self.swa_scheduler.step()
+            elif self.scheduler is not None:
+                if isinstance(self.scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+                    self.scheduler.step(val_metrics['val_loss'])
+                else:
+                    self.scheduler.step()
+
+            epoch_time = time.time() - epoch_start_time
+            current_lr = self.optimizer.param_groups[0]['lr']
+
+            # Only rank 0 logs and saves
+            if self.is_main_process:
+                logger.info(
+                    f"Epoch [{epoch + 1}/{num_epochs}] "
+                    f"Train Loss: {train_metrics['train_loss']:.4f}, "
+                    f"Train Acc: {train_metrics['train_acc']:.2f}%, "
+                    f"Val Loss: {val_metrics['val_loss']:.4f}, "
+                    f"Val Acc: {val_metrics['val_acc']:.2f}%, "
+                    f"LR: {current_lr:.6f}, "
+                    f"Time: {epoch_time:.2f}s"
+                )
+
+                for key, value in {**train_metrics, **val_metrics}.items():
+                    self.metrics_history[key].append(value)
+
+                # Save checkpoint if best
+                if val_metrics['val_acc'] > self.best_val_acc:
+                    self.best_val_acc = val_metrics['val_acc']
+                    self.save_checkpoint('best_model.pth', epoch, val_metrics)
+
+                # Periodic checkpoint
+                if (epoch + 1) % self.config.logging.save_frequency == 0:
+                    self.save_checkpoint(f'checkpoint_epoch_{epoch + 1}.pth', epoch, val_metrics)
+
+                # Early stopping
+                if self.early_stopping:
+                    if self.early_stopping(val_metrics['val_loss']):
+                        logger.info(f"Early stopping triggered at epoch {epoch + 1}")
+                        break
+
+            # Synchronize all processes after each epoch
+            self.dist.barrier()
+
+        # SWA finalization
+        if self.use_swa and self.is_main_process:
+            logger.info("Updating batch normalization statistics for SWA model")
+            torch.optim.swa_utils.update_bn(train_loader, self.swa_model, self.device)
+
+        if self.is_main_process:
+            logger.info("DDP training completed")
+
+        return dict(self.metrics_history)
