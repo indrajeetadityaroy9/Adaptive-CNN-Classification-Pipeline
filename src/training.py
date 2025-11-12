@@ -9,12 +9,10 @@ import numpy as np
 from tqdm import tqdm
 import time
 from collections import defaultdict
-
 from src.config import Config, DataConfig, ModelConfig, TrainingConfig, LoggingConfig
 logger = logging.getLogger(__name__)
 
 class EarlyStopping:
-
     def __init__(self, patience=10, min_delta=0.001, mode='min'):
         self.patience = patience
         self.min_delta = min_delta
@@ -43,7 +41,6 @@ class EarlyStopping:
         return self.early_stop
 
 class LabelSmoothingCrossEntropy(nn.Module):
-
     def __init__(self, smoothing=0.1):
         super().__init__()
         self.smoothing = smoothing
@@ -58,7 +55,6 @@ class LabelSmoothingCrossEntropy(nn.Module):
         return loss.mean()
 
 class Trainer:
-
     def __init__(self, model, config, device):
         self.model = model
         self.config = config
@@ -76,9 +72,8 @@ class Trainer:
         self.use_amp = config.training.use_amp and device.type == 'cuda'
         self.autocast_kwargs = {}
         if self.use_amp:
-            self.scaler = GradScaler()  # device_type not supported in PyTorch 2.0
-            self.autocast_kwargs = {'device_type': 'cuda'}  # autocast requires device_type
-            logger.info("Using Automatic Mixed Precision (AMP)")
+            self.scaler = GradScaler()
+            self.autocast_kwargs = {'device_type': 'cuda'}
 
         self.use_swa = config.training.use_swa
         if self.use_swa:
@@ -222,7 +217,6 @@ class Trainer:
 
 class DDPTrainer(Trainer):
     def __init__(self, model, config, device, rank, world_size):
-        # Initialize base trainer with unwrapped model for state dict access
         super().__init__(model.module if hasattr(model, 'module') else model, config, device)
 
         # Store DDP-wrapped model for training
@@ -230,8 +224,7 @@ class DDPTrainer(Trainer):
         self.rank = rank
         self.world_size = world_size
         self.is_main_process = (rank == 0)
-
-        # Import distributed utilities
+        
         import torch.distributed as dist
         self.dist = dist
 
