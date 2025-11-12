@@ -1,11 +1,8 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 import logging
-from pathlib import Path
 import cv2
 
 logger = logging.getLogger(__name__)

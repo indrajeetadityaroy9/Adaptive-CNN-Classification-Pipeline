@@ -1,7 +1,5 @@
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset, random_split
-import torchvision
 from torchvision import datasets, transforms
 import numpy as np
 import logging

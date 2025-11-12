@@ -1,7 +1,28 @@
-import modal
+import logging
+import os
+import random
+import sys
 from pathlib import Path
 from typing import Optional
-import sys
+
+import modal
+import numpy as np
+import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+
+if '/root' not in sys.path and Path('/root').exists():
+    sys.path.insert(0, '/root')
+
+from src.config import ConfigManager, setup_logging
+from src.datasets import DatasetManager
+from src.evaluation import ModelEvaluator
+from src.models import ModelFactory
+from src.training import DDPTrainer
+from src.visualization import TrainingVisualizer
 
 volume = modal.Volume.from_name("cnn-training-vol", create_if_missing=True)
 
@@ -32,31 +53,11 @@ training_image = (
 app = modal.App("adaptive-cnn-training", image=training_image)
 
 def train_worker(
-    rank: int,
-    world_size: int,
-    config_path: str,
+    rank,
+    world_size,
+    config_path,
     experiment_name: Optional[str]
 ):
-    import os
-    import random
-    import logging
-    import torch
-    import torch.nn as nn
-    import torch.distributed as dist
-    from torch.nn.parallel import DistributedDataParallel as DDP
-    from torch.utils.data.distributed import DistributedSampler
-    from torch.utils.data import DataLoader
-    import numpy as np
-
-    sys.path.insert(0, '/root')
-
-    from src.config import ConfigManager, setup_logging
-    from src.models import ModelFactory
-    from src.datasets import DatasetManager
-    from src.training import DDPTrainer
-    from src.evaluation import ModelEvaluator
-    from src.visualization import TrainingVisualizer
-
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '29500'
     os.environ['RANK'] = str(rank)
@@ -105,7 +106,7 @@ def train_worker(
         logger.info(f"Dataset: {config.data.dataset}")
         logger.info(f"World Size: {world_size}")
         logger.info(f"GPUs: {world_size} x A100 (40GB each)")
-        logger.info(f"Backend: NCCL")
+        logger.info("Backend: NCCL")
         logger.info("=" * 60)
     else:
         logging.basicConfig(level=logging.ERROR)
@@ -144,7 +145,7 @@ def train_worker(
     if is_main_process:
         total_params = sum(p.numel() for p in model.module.parameters())
         trainable_params = sum(p.numel() for p in model.module.parameters() if p.requires_grad)
-        logger.info(f"Model wrapped with DistributedDataParallel")
+        logger.info("Model wrapped with DistributedDataParallel")
         logger.info(f"Total parameters: {total_params:,}")
         logger.info(f"Trainable parameters: {trainable_params:,}")
         logger.info(f"Effective batch size: {config.data.batch_size * world_size}")
@@ -291,9 +292,7 @@ def train_worker(
     dist.destroy_process_group()
     return result
 
-def train_orchestrator(num_gpus: int, config_path: str, experiment_name: Optional[str] = None):
-    import torch.multiprocessing as mp
-
+def train_orchestrator(num_gpus, config_path, experiment_name: Optional[str] = None):
     if num_gpus == 1:
         return train_worker(0, 1, config_path, experiment_name)
     else:
@@ -307,15 +306,15 @@ def train_orchestrator(num_gpus: int, config_path: str, experiment_name: Optiona
     volumes={str(VOLUME_PATH): volume},
     retries=modal.Retries(max_retries=10, initial_delay=0.0, backoff_coefficient=1.0),
 )
-def train_with_gpus(num_gpus: int, config_path: str, experiment_name: Optional[str] = None):
+def train_with_gpus(num_gpus, config_path, experiment_name: Optional[str] = None):
     return train_orchestrator(num_gpus, config_path, experiment_name)
 
 
 @app.local_entrypoint()
 def main(
-    config_path: str,
+    config_path,
     experiment_name: Optional[str] = None,
-    num_gpus: int = 1
+    num_gpus=1
 ):
     if num_gpus < 1 or num_gpus > 8:
         raise ValueError("num_gpus must be between 1 and 8")
@@ -341,10 +340,10 @@ def main(
             print(f"Test Accuracy: {result['test_accuracy']:.4f}")
             print(f"GPUs Used: {result['num_gpus']}")
             print(f"Output Directory: {result['output_dir']}")
-            print(f"\nTo download outputs:")
-            print(f"  modal volume get cnn-training-vol outputs/{Path(result['output_dir']).name} ./ddp-results")
+            print("\nTo download outputs:")
+            print(f"modal volume get cnn-training-vol outputs/{Path(result['output_dir']).name} ./ddp-results")
         else:
             print(f"DDP Training completed with {result.get('num_gpus', num_gpus)} GPUs")
-            print(f"\nTo download outputs:")
-            print(f"  modal volume ls cnn-training-vol outputs")
+            print("\nTo download outputs:")
+            print("modal volume ls cnn-training-vol outputs")
         print(f"{'='*60}\n")

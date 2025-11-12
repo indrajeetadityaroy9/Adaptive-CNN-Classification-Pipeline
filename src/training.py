@@ -5,7 +5,6 @@ from torch.amp import autocast, GradScaler
 from torch.optim.swa_utils import AveragedModel, SWALR
 import logging
 from pathlib import Path
-import numpy as np
 from tqdm import tqdm
 import time
 from collections import defaultdict

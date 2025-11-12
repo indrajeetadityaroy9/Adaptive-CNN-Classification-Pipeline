@@ -1,11 +1,12 @@
 import argparse
-import os
 import logging
+import subprocess
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
+from PIL import Image
 
 from src.config import (
     ConfigManager,
@@ -19,15 +20,11 @@ from src.config import (
 from src.models import ModelFactory
 from src.datasets import DatasetManager, preprocess_image
 from src.evaluation import ModelEvaluator, TestTimeAugmentation
-from src.visualization import (
-    FeatureMapVisualizer, GradCAM, TrainingVisualizer
-)
+from src.visualization import FeatureMapVisualizer, GradCAM
 
 logger = logging.getLogger(__name__)
 
 def train_on_modal(config_path, num_gpus=1, experiment_name=None):
-    import subprocess
-
     config_file = Path(config_path)
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
@@ -55,8 +52,8 @@ def train_on_modal(config_path, num_gpus=1, experiment_name=None):
         print("Training completed successfully!")
         print(f"{'='*60}\n")
         print("To download results:")
-        print(f"  python main.py download --list")
-        print(f"  python main.py download --experiment <name> --output ./results")
+        print("python main.py download --list")
+        print("python main.py download --experiment <name> --output ./results")
         return result.returncode
     except subprocess.CalledProcessError as e:
         print(f"\n{'='*60}")
@@ -68,8 +65,6 @@ def train_on_modal(config_path, num_gpus=1, experiment_name=None):
         return 1
 
 def download_from_modal(list_only=False, experiment_name=None, checkpoint_name=None, output_dir='./downloads'):
-    import subprocess
-
     VOLUME_NAME = "cnn-training-vol"
 
     try:
@@ -117,10 +112,10 @@ def download_from_modal(list_only=False, experiment_name=None, checkpoint_name=N
             print("Download completed!")
             print(f"{'='*60}")
             print(f"Files saved to: {local_path}")
-            print(f"\nContents:")
+            print("\nContents:")
             for item in local_path.rglob('*'):
                 if item.is_file():
-                    print(f"  - {item.relative_to(local_path)}")
+                    print(f"- {item.relative_to(local_path)}")
             print(f"{'='*60}\n")
             return result.returncode
 
@@ -145,8 +140,8 @@ def download_from_modal(list_only=False, experiment_name=None, checkpoint_name=N
             print("Download completed!")
             print(f"{'='*60}")
             print(f"Checkpoint saved to: {local_path / checkpoint_name}")
-            print(f"\nTo use for evaluation:")
-            print(f"  python main.py evaluate <config> {local_path / checkpoint_name}")
+            print("\nTo use for evaluation:")
+            print(f"python main.py evaluate <config> {local_path / checkpoint_name}")
             print(f"{'='*60}\n")
             return result.returncode
         return 1
@@ -188,7 +183,7 @@ def evaluate_model(config_path, checkpoint_path):
     _, _, test_loader = DatasetManager.create_data_loaders(config)
 
     evaluator = ModelEvaluator(model, device, dataset_info.get('classes'))
-    test_metrics = evaluator.evaluate(test_loader)
+    evaluator.evaluate(test_loader)
 
     evaluator.print_summary()
 
@@ -250,16 +245,16 @@ def test_single_image(config_path, checkpoint_path, image_path, use_tta=False):
     pred_prob, pred_class = output.max(1)
     class_names = dataset_info.get('classes', [str(i) for i in range(dataset_info['num_classes'])])
 
-    print(f"\nPrediction Results:")
-    print(f"  Predicted Class: {class_names[pred_class.item()]}")
-    print(f"  Confidence: {pred_prob.item():.4f}")
+    print("\nPrediction Results:")
+    print(f"Predicted Class: {class_names[pred_class.item()]}")
+    print(f"Confidence: {pred_prob.item():.4f}")
 
     top5_probs, top5_classes = output.topk(5, dim=1)
-    print(f"\nTop-5 Predictions:")
+    print("\nTop-5 Predictions:")
     for i in range(5):
         class_idx = top5_classes[0, i].item()
         prob = top5_probs[0, i].item()
-        print(f"  {i+1}. {class_names[class_idx]}: {prob:.4f}")
+        print(f"{i+1}. {class_names[class_idx]}: {prob:.4f}")
 
     output_dir = Path('outputs') / 'inference'
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -280,8 +275,6 @@ def test_single_image(config_path, checkpoint_path, image_path, use_tta=False):
             last_conv_name = name
 
     if last_conv_name:
-
-        from PIL import Image
         original_img = Image.open(image_path)
         if original_img.mode != 'RGB':
             original_img = original_img.convert('RGB')

@@ -3,13 +3,11 @@ import torch.nn as nn
 import numpy as np
 from sklearn.metrics import (
     precision_score, recall_score, f1_score, confusion_matrix,
-    classification_report, roc_auc_score, average_precision_score,
-    precision_recall_curve, roc_curve
+    classification_report, roc_auc_score, roc_curve
 )
 import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
-from pathlib import Path
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -267,34 +265,34 @@ class ModelEvaluator:
         print("EVALUATION SUMMARY")
         print("=" * 60)
 
-        print(f"\nOverall Metrics:")
-        print(f"  Accuracy:          {metrics['accuracy']:.4f}")
-        print(f"  Precision (macro): {metrics['precision_macro']:.4f}")
-        print(f"  Recall (macro):    {metrics['recall_macro']:.4f}")
-        print(f"  F1 Score (macro):  {metrics['f1_macro']:.4f}")
+        print("\nOverall Metrics:")
+        print(f"Accuracy: {metrics['accuracy']:.4f}")
+        print(f"Precision (macro): {metrics['precision_macro']:.4f}")
+        print(f"Recall (macro): {metrics['recall_macro']:.4f}")
+        print(f"F1 Score (macro): {metrics['f1_macro']:.4f}")
 
         if 'loss' in metrics:
-            print(f"  Loss:              {metrics['loss']:.4f}")
+            print(f"Loss: {metrics['loss']:.4f}")
 
-        print(f"\nTop-K Accuracy:")
+        print("\nTop-K Accuracy:")
         for k in [1, 3, 5]:
             if f'top_{k}_accuracy' in metrics:
-                print(f"  Top-{k}: {metrics[f'top_{k}_accuracy']:.4f}")
+                print(f"Top-{k}: {metrics[f'top_{k}_accuracy']:.4f}")
 
         if 'auc_macro' in metrics:
-            print(f"\nAUC Scores:")
-            print(f"  Macro:    {metrics['auc_macro']:.4f}")
-            print(f"  Weighted: {metrics['auc_weighted']:.4f}")
+            print("\nAUC Scores:")
+            print(f"Macro: {metrics['auc_macro']:.4f}")
+            print(f"Weighted: {metrics['auc_weighted']:.4f}")
 
         if self.class_names:
-            print(f"\nPer-Class Metrics:")
+            print("\nPer-Class Metrics:")
             print(f"{'Class':<15} {'Precision':<10} {'Recall':<10} {'F1-Score':<10}")
             print("-" * 45)
             for i, class_name in enumerate(self.class_names):
                 print(f"{class_name:<15} "
-                     f"{metrics['precision_per_class'][i]:<10.4f} "
-                     f"{metrics['recall_per_class'][i]:<10.4f} "
-                     f"{metrics['f1_per_class'][i]:<10.4f}")
+                      f"{metrics['precision_per_class'][i]:<10.4f} "
+                      f"{metrics['recall_per_class'][i]:<10.4f} "
+                      f"{metrics['f1_per_class'][i]:<10.4f}")
 
         print("=" * 60)
 
